@@ -5,7 +5,8 @@
     "buildCommand": "npm install",
     "watchPatterns": [
       "server.js",
-      "package.json"
+      "package.json",
+      "railway.json"
     ]
   },
   "deploy": {
