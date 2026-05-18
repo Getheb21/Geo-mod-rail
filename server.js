@@ -201,8 +201,15 @@ class GatewayServer {
       return;
     }
 
+    // Healthcheck endpoint mapping matching railway.json path
+    if (parsedUrl.pathname === '/health') {
+      res.writeHead(200, { 'Content-Type': 'text/plain', ...CORS_HEADER_OPTIONS });
+      res.end('OK');
+      return;
+    }
+
     if (parsedUrl.pathname === '/') {
-      const currentHost = req.headers.host || 'localhost:3000';
+      const currentHost = req.headers.host || 'localhost:8080';
       const systemUptime = Math.floor(process.uptime());
       const ramAllocation = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
 
@@ -346,7 +353,6 @@ class GatewayServer {
 
     <div class="max-w-7xl mx-auto relative z-10">
         
-        <!-- HEADER TOP INFO -->
         <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
             <div class="text-center md:text-left">
                 <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full glass-deep text-xs font-semibold mb-3" style="color: #60a5fa;">
@@ -363,7 +369,6 @@ class GatewayServer {
             </button>
         </div>
 
-        <!-- ADDITIONAL SYSTEM PERFORMANCE CARD BAR (INFO KODE 1) -->
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <div class="glass-deep p-4 rounded-xl flex items-center justify-between">
             <div>
@@ -783,7 +788,7 @@ class GatewayServer {
   }
 
   // ==================== SERVER CORE INITIALIZATION ====================
-  start(port = process.env.PORT || 3000) {
+  start(port = process.env.PORT || 8080) {
     const server = http.createServer((req, res) => {
       this.handleHttpRequest(req, res).catch(error => {
         console.error('Core Engine Server Error:', error);
@@ -805,7 +810,7 @@ class GatewayServer {
 
 if (require.main === module) {
   const server = new GatewayServer();
-  server.start(process.env.PORT || 3000);
+  server.start(process.env.PORT || 8080); // Diubah default fallback port ke 8080 agar sinkron dengan railway.json
 }
 
 module.exports = GatewayServer;
