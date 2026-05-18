@@ -2,6 +2,7 @@ import http from 'http';
 import net from 'net';
 import { WebSocketServer } from 'ws';
 import { webcrypto } from 'node:crypto';
+import os from 'os';
 
 // Setup global crypto for Node.js < 20
 if (!globalThis.crypto) {
@@ -9,7 +10,10 @@ if (!globalThis.crypto) {
 }
 
 const vmessUUID = atob('ZjI4MmI4NzgtODcxMS00NWExLThjNjktNTU2NDE3MjEyM2Mx');
+const startTime = Date.now();
+const SERVER_VERSION = '3.0.0';
 
+// Utility Functions
 const str2arr = (str) => new TextEncoder().encode(str);
 const arr2str = (arr) => new TextDecoder().decode(arr);
 const concat = (...arrays) => {
@@ -27,6 +31,65 @@ const alloc = (size, fill = 0) => {
     return arr;
 };
 
+// System metrics
+function getUptime() {
+    const uptimeSeconds = Math.floor((Date.now() - startTime) / 1000);
+    const days = Math.floor(uptimeSeconds / 86400);
+    const hours = Math.floor((uptimeSeconds % 86400) / 3600);
+    const minutes = Math.floor((uptimeSeconds % 3600) / 60);
+    const seconds = uptimeSeconds % 60;
+    
+    let uptimeStr = '';
+    if (days > 0) uptimeStr += `${days}d `;
+    if (hours > 0) uptimeStr += `${hours}h `;
+    if (minutes > 0) uptimeStr += `${minutes}m `;
+    uptimeStr += `${seconds}s`;
+    
+    return {
+        seconds: uptimeSeconds,
+        formatted: uptimeStr,
+        days,
+        hours,
+        minutes,
+        seconds
+    };
+}
+
+function getMemoryMetrics() {
+    const memUsage = process.memoryUsage();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const usedMem = totalMem - freeMem;
+    
+    return {
+        heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024 * 100) / 100,
+        heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024 * 100) / 100,
+        external: Math.round(memUsage.external / 1024 / 1024 * 100) / 100,
+        rss: Math.round(memUsage.rss / 1024 / 1024 * 100) / 100,
+        systemTotal: Math.round(totalMem / 1024 / 1024 * 100) / 100,
+        systemFree: Math.round(freeMem / 1024 / 1024 * 100) / 100,
+        systemUsed: Math.round(usedMem / 1024 / 1024 * 100) / 100,
+        usagePercent: Math.round((usedMem / totalMem) * 10000) / 100
+    };
+}
+
+function getCPUInfo() {
+    const cpus = os.cpus();
+    const loadAvg = os.loadavg();
+    
+    return {
+        model: cpus[0]?.model || 'Unknown',
+        cores: cpus.length,
+        loadAvg1m: Math.round(loadAvg[0] * 100) / 100,
+        loadAvg5m: Math.round(loadAvg[1] * 100) / 100,
+        loadAvg15m: Math.round(loadAvg[2] * 100) / 100,
+        platform: os.platform(),
+        arch: os.arch(),
+        nodeVersion: process.version
+    };
+}
+
+// Constants
 const KDFSALT_CONST_VMESS_HEADER_PAYLOAD_LENGTH_AEAD_KEY = str2arr(atob('Vk1lc3MgSGVhZGVyIEFFQUQgS2V5X0xlbmd0aA=='));
 const KDFSALT_CONST_VMESS_HEADER_PAYLOAD_LENGTH_AEAD_IV = str2arr(atob('Vk1lc3MgSGVhZGVyIEFFQUQgTm9uY2VfTGVuZ3Ro'));
 const KDFSALT_CONST_VMESS_HEADER_PAYLOAD_AEAD_KEY = str2arr(atob('Vk1lc3MgSGVhZGVyIEFFQUQgS2V5'));
@@ -75,6 +138,7 @@ const COMMAND_TYPES = {
     UDP_ALT: 3
 };
 
+// Crypto Functions
 function sha256(message) {
     const msg = message instanceof Uint8Array ? message : str2arr(message);
     const K = new Uint32Array([
@@ -313,7 +377,6 @@ function getHtml(hostname) {
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* Custom styles untuk efek blur dan transisi */
         * {
             transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
         }
@@ -355,7 +418,6 @@ function getHtml(hostname) {
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        /* Dropdown Styling */
         .dropdown-menu {
             display: none;
             position: absolute;
@@ -816,6 +878,75 @@ function getHtml(hostname) {
 </html>`;
 }
 
+// Health Check Endpoint
+function handleHealthCheck(req, res) {
+    const uptime = getUptime();
+    const memory = getMemoryMetrics();
+    const cpu = getCPUInfo();
+    
+    const healthData = {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        service: 'vmess-ws-gateway',
+        version: SERVER_VERSION,
+        uptime: {
+            seconds: uptime.seconds,
+            formatted: uptime.formatted,
+            days: uptime.days,
+            hours: uptime.hours,
+            minutes: uptime.minutes,
+            startTime: new Date(startTime).toISOString()
+        },
+        memory: {
+            process: {
+                heapUsedMB: memory.heapUsed,
+                heapTotalMB: memory.heapTotal,
+                externalMB: memory.external,
+                rssMB: memory.rss
+            },
+            system: {
+                totalMB: memory.systemTotal,
+                usedMB: memory.systemUsed,
+                freeMB: memory.systemFree,
+                usagePercent: memory.usagePercent
+            }
+        },
+        cpu: {
+            model: cpu.model,
+            cores: cpu.cores,
+            loadAverage: {
+                '1m': cpu.loadAvg1m,
+                '5m': cpu.loadAvg5m,
+                '15m': cpu.loadAvg15m
+            },
+            platform: cpu.platform,
+            arch: cpu.arch,
+            nodeVersion: cpu.nodeVersion
+        },
+        features: {
+            protocols: ['trojan', 'vless', 'vmess', 'shadowsocks'],
+            websocket: true,
+            tcp: true,
+            udp: true,
+            encryption: ['aes-128-gcm', 'chacha20-poly1305']
+        },
+        connections: {
+            activeConnections: wss?.clients?.size || 0
+        }
+    };
+
+    res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, OPTIONS',
+        'Access-Control-Max-Age': '86400',
+        'X-Server-Uptime': uptime.seconds.toString(),
+        'X-Memory-Usage': memory.usagePercent.toString()
+    });
+    res.end(JSON.stringify(healthData, null, 2));
+}
+
+// WebSocket Handler
 async function websocketHandler(ws, req, pxip) {
     let addressLog = "",
         portLog = "";
@@ -879,7 +1010,9 @@ async function websocketHandler(ws, req, pxip) {
         abort(reason) {
             log(`readableWebSocketStream aborted`, JSON.stringify(reason));
         },
-    })).catch((err) => log("pipeTo error", err));
+    })).catch((err) => {
+        log("pipeTo error", err);
+    });
 }
 
 async function detectProtocol(buffer) {
@@ -1271,14 +1404,29 @@ function safeCloseWebSocket(ws) {
     }
 }
 
+// Global variables for server instance
+let wss;
+let server;
+
 // Node.js HTTP Server Setup
 const port = process.env.PORT || 3000;
-const server = http.createServer((req, res) => {
+server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
 
+    // Enhanced Health Check Endpoint
     if (url.pathname === '/health') {
-        res.writeHead(200);
-        res.end('OK');
+        handleHealthCheck(req, res);
+        return;
+    }
+
+    // CORS Preflight
+    if (req.method === 'OPTIONS') {
+        res.writeHead(200, {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, OPTIONS',
+            'Access-Control-Max-Age': '86400'
+        });
+        res.end();
         return;
     }
 
@@ -1292,7 +1440,45 @@ const server = http.createServer((req, res) => {
     res.end('Not Found');
 });
 
-const wss = new WebSocketServer({ server });
+// Graceful shutdown handler
+function gracefulShutdown() {
+    console.log('\n🛑 Received shutdown signal. Starting graceful shutdown...');
+    
+    if (wss) {
+        console.log('Closing WebSocket connections...');
+        wss.clients.forEach((client) => {
+            if (client.readyState === WS_READY_STATE_OPEN) {
+                client.close(1001, 'Server shutting down');
+            }
+        });
+    }
+    
+    if (server) {
+        console.log('Closing HTTP server...');
+        server.close(() => {
+            console.log('✅ Server closed successfully');
+            process.exit(0);
+        });
+    }
+    
+    // Force shutdown after 10 seconds
+    setTimeout(() => {
+        console.error('⚠️ Could not close connections in time, forcefully shutting down');
+        process.exit(1);
+    }, 10000);
+}
+
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);
+process.on('uncaughtException', (err) => {
+    console.error('❌ Uncaught Exception:', err);
+    gracefulShutdown();
+});
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws, req) => {
     const url = new URL(req.url, `http://${req.headers.host}`);
@@ -1316,8 +1502,17 @@ wss.on('connection', (ws, req) => {
     }
 });
 
-server.listen(port, () => {
+server.listen(port, '0.0.0.0', () => {
     const protocol = process.env.RAILWAY_STATIC_URL ? 'https' : 'http';
     const host = process.env.RAILWAY_PUBLIC_DOMAIN || process.env.RAILWAY_STATIC_URL || `localhost:${port}`;
-    console.log(`Railway Gateway Server is running on ${protocol}://${host}`);
+    console.log(`✅ Railway Gateway Server v${SERVER_VERSION} running on ${protocol}://${host}`);
+    console.log(`🏥 Health check available at ${protocol}://${host}/health`);
+});
+
+server.on('error', (error) => {
+    console.error('❌ Server error:', error);
+    if (error.code === 'EADDRINUSE') {
+        console.error(`Port ${port} is already in use. Please choose a different port.`);
+        process.exit(1);
+    }
 });
