@@ -4,7 +4,8 @@ const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 
 // ==================== KONSTANTA & CONFIG ====================
-const PORT = process.argv[2] || 3000;
+// Perbaikan: Membaca process.env.PORT terlebih dahulu untuk kompatibilitas Railway
+const PORT = process.env.PORT || process.argv[2] || 3000;
 const vmessUUID = "3b01a777-55e7-49f6-8637-d94ee69607c6";
 const proxyListUrl = 'https://raw.githubusercontent.com/jaka1m/botak/refs/heads/main/cek/proxyList.txt';
 const CHECK_API_URL = 'https://cprx-sshvless.wasmer.app/api/check';
@@ -381,10 +382,16 @@ const UI_HTML = `<!DOCTYPE html>
 
 // ==================== HTTP SERVER ROOT ====================
 const server = http.createServer((req, res) => {
-    if (req.url === '/' || req.url === '/index.html') {
+    // Tambahan: Endpoint Healthcheck untuk Railway
+    if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'UP', timestamp: new Date().toISOString() }));
+    } 
+    else if (req.url === '/' || req.url === '/index.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(UI_HTML);
-    } else {
+    } 
+    else {
         res.writeHead(404, { 'Content-Type': 'text/plain' });
         res.end('Not Found');
     }
@@ -396,6 +403,12 @@ const wss = new WebSocketServer({ server });
 wss.on('connection', async (ws, req) => {
     console.log(`[Proxy] Terhubung via WebSocket dari path: ${req.url}`);
     
+    // Abaikan websocket handshake jika request menuju ke path healthcheck
+    if (req.url === '/health') {
+        ws.close();
+        return;
+    }
+
     const proxyFromPath = await getProxyFromPath(req.url);
     if (proxyFromPath) prxIP = proxyFromPath;
 
@@ -405,7 +418,6 @@ wss.on('connection', async (ws, req) => {
     ws.on('message', async (message) => {
         let chunk = Buffer.isBuffer(message) ? message : Buffer.from(message);
 
-        // Jika koneksi baru, lakukan parsing protokol jabat tangan pertama (Handshake)
         if (!isHeaderParsed) {
             const protocol = await detectProtocol(chunk);
             let targetHost = "";
@@ -426,7 +438,6 @@ wss.on('connection', async (ws, req) => {
                 rawClientData = parsed.rawClientData;
             }
 
-            // Arahkan ke Proxy IP yang didapat dari Path jika tersedia
             if (prxIP) {
                 const [pHost, pPort] = prxIP.split(/[:=-]/);
                 targetHost = pHost;
@@ -435,9 +446,8 @@ wss.on('connection', async (ws, req) => {
 
             console.log(`[Proxy Outbound] Dial ke target: ${targetHost}:${targetPort}`);
 
-            // Buat TCP Socket asli Node.js untuk bypass data ke internet / Bug ISP
             remoteSocket = net.connect(targetPort, targetHost, () => {
-                if (responseHeader) ws.send(responseHeader); // Kirim balik respon VLESS v0 jika dibutuhkan
+                if (responseHeader) ws.send(responseHeader);
                 remoteSocket.write(rawClientData);
             });
 
@@ -447,13 +457,12 @@ wss.on('connection', async (ws, req) => {
 
             remoteSocket.on('end', () => ws.close());
             remoteSocket.on('error', (err) => {
-                console.error('[TCP Error]', err.message);
+                console.log('[TCP Error]', err.message);
                 ws.close();
             });
 
             isHeaderParsed = true;
         } else {
-            // Sesi data stream berjalan langsung kirim tanpa parsing lagi
             if (remoteSocket && remoteSocket.writable) {
                 remoteSocket.write(chunk);
             }
@@ -471,5 +480,6 @@ server.listen(PORT, () => {
     console.log(`=================================================`);
     console.log(` VPN Config Manager Node.js Aktif!`);
     console.log(` URL Dashboard: http://localhost:${PORT}/`);
+    console.log(` Healthcheck Endpoint: http://localhost:${PORT}/health`);
     console.log(`=================================================`);
 });
